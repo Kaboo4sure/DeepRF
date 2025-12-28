@@ -4,7 +4,7 @@ import zipfile
 
 # NASA C-MAPSS is commonly distributed as a zip (often called CMAPSSData.zip
 # NOTE: If this URL ever changes, search "NASA C-MAPSS CMAPSSData.zip"
-CMAPSS_URL = "https://ti.arc.nasa.gov/c/6/"
+CMAPSS_URL = "https://data.nasa.gov/docs/legacy/CMAPSSData.zip"
 
 def download_file(url: str, out_path: str):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
