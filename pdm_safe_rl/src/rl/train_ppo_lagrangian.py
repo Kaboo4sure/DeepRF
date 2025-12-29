@@ -200,9 +200,11 @@ def train(
         else:
             avg_ep_cost = float(buf_cost.mean())
 
+        lambda_max = 10.0 
         lam_mult = torch.clamp(
             lam_mult + lambda_lr * torch.tensor(avg_ep_cost - cost_limit, device=device),
             min=0.0
+            max=lambda_max
 )
 
         # -------------------------
