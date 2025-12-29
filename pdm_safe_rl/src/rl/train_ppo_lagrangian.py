@@ -203,7 +203,7 @@ def train(
         lambda_max = 10.0 
         lam_mult = torch.clamp(
             lam_mult + lambda_lr * torch.tensor(avg_ep_cost - cost_limit, device=device),
-            min=0.0
+            min=0.0,
             max=lambda_max
 )
 
@@ -321,7 +321,7 @@ if __name__ == "__main__":
         steps_per_iter=4000,
         seed=42,
         cost_limit=3.0,
-        lambda_lr=0.002,
+        lambda_lr=0.02,
         rul_min=150.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
