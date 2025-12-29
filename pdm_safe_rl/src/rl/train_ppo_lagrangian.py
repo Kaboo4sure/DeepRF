@@ -321,7 +321,7 @@ if __name__ == "__main__":
         steps_per_iter=4000,
         seed=42,
         cost_limit=3.0,
-        lambda_lr=0.02,
+        lambda_lr=0.002,
         rul_min=150.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
