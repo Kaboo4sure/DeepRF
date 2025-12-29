@@ -193,16 +193,20 @@ def train(
         # -------------------------
         
         # --- Update Lagrange multiplier (dual ascent) ---
-        N = 10  # number of recent episodes to estimate Jc
-
+        # --- Dual ascent on per-step cost ---
+        N = 10
         if len(ep_costs) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
         else:
             avg_ep_cost = float(buf_cost.mean())
 
-        lambda_max = 10.0 
+        avg_step_cost = avg_ep_cost / max_steps
+
+        cost_limit_step = 0.01  # target unsafe probability per step
+        lambda_max = 20.0
+
         lam_mult = torch.clamp(
-            lam_mult + lambda_lr * torch.tensor(avg_ep_cost - cost_limit, device=device),
+            lam_mult + lambda_lr * torch.tensor(avg_step_cost - cost_limit_step, device=device),
             min=0.0,
             max=lambda_max
 )
@@ -263,12 +267,14 @@ def train(
         avg_ret = float(np.mean(ep_rets[-10:])) if len(ep_rets) >= 1 else float(np.mean(buf_rew))
         avg_cost = float(np.mean(ep_costs[-10:])) if len(ep_costs) >= 1 else float(np.mean(buf_cost))
         avg_len = float(np.mean(ep_lens[-10:])) if len(ep_lens) >= 1 else 0.0
-
+        avg_p_unsafe_per_step = avg_cost / max(1.0, avg_len)
+        
         log = {
             "iter": it,
             "avg_return_last10eps": avg_ret,
             "avg_cost_last10eps": avg_cost,
             "avg_len_last10eps": avg_len,
+            "avg_p_unsafe_per_step_last10eps": float(avg_p_unsafe_per_step),
             "lambda": float(lam_mult.item()),
             "approx_kl": float(approx_kl),
             "time_elapsed_sec": float(time.time() - start_time),
@@ -321,8 +327,8 @@ if __name__ == "__main__":
         steps_per_iter=4000,
         seed=42,
         cost_limit=3.0,
-        lambda_lr=0.002,
-        rul_min=150.0,
+        lambda_lr=0.1,
+        rul_min=100.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
         n_models=5,
