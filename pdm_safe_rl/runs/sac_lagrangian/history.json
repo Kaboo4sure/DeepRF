@@ -1,0 +1,46 @@
+[
+  {
+    "iter": 10000,
+    "avg_return_last10eps": -94.5000000000004,
+    "avg_cost_last10eps": 0.18,
+    "avg_len_last10eps": 300.0,
+    "avg_p_unsafe_per_step_last10eps": 0.0006,
+    "lambda": 0.014996999999999983,
+    "cost_limit_step": 0.01,
+    "alpha": 0.6676254272460938,
+    "time_elapsed_sec": 377.8994915485382
+  },
+  {
+    "iter": 20000,
+    "avg_return_last10eps": -109.70000000000036,
+    "avg_cost_last10eps": 0.0,
+    "avg_len_last10eps": 300.0,
+    "avg_p_unsafe_per_step_last10eps": 0.0,
+    "lambda": 0.0,
+    "cost_limit_step": 0.01,
+    "alpha": 0.7277759909629822,
+    "time_elapsed_sec": 849.4294924736023
+  },
+  {
+    "iter": 30000,
+    "avg_return_last10eps": -94.60000000000026,
+    "avg_cost_last10eps": 0.1,
+    "avg_len_last10eps": 300.0,
+    "avg_p_unsafe_per_step_last10eps": 0.0,
+    "lambda": 0.0,
+    "cost_limit_step": 0.01,
+    "alpha": 0.6302577257156372,
+    "time_elapsed_sec": 1491.0077481269836
+  },
+  {
+    "iter": 40000,
+    "avg_return_last10eps": -96.50000000000028,
+    "avg_cost_last10eps": 1.3,
+    "avg_len_last10eps": 300.0,
+    "avg_p_unsafe_per_step_last10eps": 0.0028000000000000004,
+    "lambda": 0.0,
+    "cost_limit_step": 0.01,
+    "alpha": 0.5262908935546875,
+    "time_elapsed_sec": 2069.2196369171143
+  }
+]
