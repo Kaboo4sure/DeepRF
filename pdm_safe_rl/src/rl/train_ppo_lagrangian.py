@@ -195,27 +195,24 @@ def train(
         # --- Update Lagrange multiplier (dual ascent) ---
         # --- Dual ascent on per-step cost ---
        # --- Dual ascent on per-step cost (stable float update) ---
+        # --- Update Lagrange multiplier (dual ascent) ---
         N = 10
-        if len(ep_costs) > 0:
-            avg_ep_cost = float(np.mean(ep_costs[-N:]))
-            avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else max_steps
-        else:
-            avg_ep_cost = float(buf_cost.mean())
-            avg_ep_len  = float(max_steps)
-
-        avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
-
-        # Target unsafe probability per step
-        cost_limit_step = 0.01
         lambda_max = 20.0
 
-        # ---- IMPORTANT CHANGE HERE ----
-        # Update lambda as a Python float (allows decrease when below limit)
+        if len(ep_costs) > 0:
+            # episode-level average cost over recent episodes
+            avg_ep_cost = float(np.mean(ep_costs[-N:]))
+        else:
+            # fallback: estimate episode cost from per-step mean * episode length
+            # (buf_cost.mean() is per-step average cost over collected rollout)
+            avg_ep_cost = float(buf_cost.mean() * max_steps)
+
+        # stable float update so lambda can increase/decrease
         lam_val = float(lam_mult.item())
-        lam_val = lam_val + lambda_lr * (avg_step_cost - cost_limit_step)
+        lam_update = lambda_lr * (avg_ep_cost - cost_limit)
+        lam_val = lam_val + lam_update
         lam_val = max(0.0, min(lambda_max, lam_val))
         lam_mult = torch.tensor(lam_val, device=device)
-
 
         # -------------------------
         # PPO Updates
@@ -283,9 +280,10 @@ def train(
             "avg_p_unsafe_per_step_last10eps": float(avg_p_unsafe_per_step),
             "lambda": float(lam_mult.item()),
             "approx_kl": float(approx_kl),
-            "avg_step_cost_lastN": avg_step_cost,
-            "cost_limit_step": cost_limit_step,
-            "lambda_update_delta": float(lambda_lr * (avg_step_cost - cost_limit_step)),
+            "avg_ep_cost_lastN": avg_ep_cost,
+            "cost_limit": cost_limit,
+            "lambda_update_delta": float(lam_update),
+            "lambda_value": float(lam_mult.item()),
             "time_elapsed_sec": float(time.time() - start_time),
         }
         history.append(log)
@@ -336,7 +334,7 @@ if __name__ == "__main__":
         steps_per_iter=4000,
         seed=42,
         cost_limit=3.0,
-        lambda_lr=0.2,
+        lambda_lr=0.02,
         rul_min=100.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
