@@ -69,8 +69,8 @@ def train(
     target_kl=0.02,
     seed=42,
     # constraint settings
-    cost_limit=0.01,      # desired average constraint return per episode (tune)
-    lambda_lr=0.02,       # Lagrange multiplier update speed (tune)
+    cost_limit=0.05,      # desired average constraint return per episode (tune)
+    lambda_lr=0.05,       # Lagrange multiplier update speed (tune)
     # env settings
     model_dir="models/ensemble_rul_sim",
     n_models=5,
@@ -337,8 +337,8 @@ if __name__ == "__main__":
         total_iters=200,
         steps_per_iter=4000,
         seed=42,
-        cost_limit=0.01,
-        lambda_lr=0.02,
+        cost_limit=0.05,
+        lambda_lr=0.05,
         rul_min=100.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
