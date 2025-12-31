@@ -197,12 +197,14 @@ def train(
         N = 10
         if len(ep_costs) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
+            avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else max_steps
         else:
             avg_ep_cost = float(buf_cost.mean())
+            avg_ep_len  = max_steps
 
-        avg_step_cost = avg_ep_cost / max_steps
+        avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
 
-        cost_limit_step = 0.01  # target unsafe probability per step
+        cost_limit_step = 0.01   # target unsafe probability per step
         lambda_max = 20.0
 
         lam_mult = torch.clamp(
@@ -210,6 +212,7 @@ def train(
             min=0.0,
             max=lambda_max
 )
+
 
         # -------------------------
         # PPO Updates
@@ -277,12 +280,14 @@ def train(
             "avg_p_unsafe_per_step_last10eps": float(avg_p_unsafe_per_step),
             "lambda": float(lam_mult.item()),
             "approx_kl": float(approx_kl),
+            "avg_step_cost_lastN": avg_step_cost,
+            "cost_limit_step": cost_limit_step,
             "time_elapsed_sec": float(time.time() - start_time),
         }
         history.append(log)
 
         if it % 10 == 0 or it == 1:
-            print(json.dumps(log, indent=2))
+            print(json.dumps(log, indent=2), flush=True)
 
         if it % 50 == 0:
             ckpt = {
@@ -308,9 +313,9 @@ def train(
                     "max_steps": max_steps,
                 }
             }
-            torch.save(ckpt, os.path.join(log_dir, f"ckpt_iter_{it}.pt"))
-            with open(os.path.join(log_dir, "history.json"), "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2)
+            with open(os.path.join(log_dir, "progress.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(log) + "\n")
+
 
     # final save
     torch.save({"ac_state_dict": ac.state_dict(), "lambda": float(lam_mult.item())},
@@ -327,7 +332,7 @@ if __name__ == "__main__":
         steps_per_iter=4000,
         seed=42,
         cost_limit=3.0,
-        lambda_lr=0.1,
+        lambda_lr=0.2,
         rul_min=100.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",

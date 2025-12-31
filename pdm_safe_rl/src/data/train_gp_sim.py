@@ -1,5 +1,5 @@
 # This is used to train the uncertainty model
-# First on simulated date 
+# First on simulated data 
 # Then validate on C_MAPSS
 # The training assume Gaussian Process (GP)
 
