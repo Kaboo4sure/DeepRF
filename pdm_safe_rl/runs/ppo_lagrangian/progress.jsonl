@@ -1,0 +1,2 @@
+{"iter": 50, "avg_return_last10eps": -89.60000000000034, "avg_cost_last10eps": 50.36, "avg_len_last10eps": 300.0, "avg_p_unsafe_per_step_last10eps": 0.16786666666666666, "lambda": 0.8013131618499756, "approx_kl": 0.006857544183731079, "time_elapsed_sec": 723.7279288768768}
+{"iter": 100, "avg_return_last10eps": -113.60000000000011, "avg_cost_last10eps": 1.4600000000000002, "avg_len_last10eps": 300.0, "avg_p_unsafe_per_step_last10eps": 0.004866666666666668, "lambda": 0.8842267394065857, "approx_kl": 0.006838883738964796, "time_elapsed_sec": 1336.3772537708282}
