@@ -194,24 +194,27 @@ def train(
         
         # --- Update Lagrange multiplier (dual ascent) ---
         # --- Dual ascent on per-step cost ---
+       # --- Dual ascent on per-step cost (stable float update) ---
         N = 10
         if len(ep_costs) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
             avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else max_steps
         else:
             avg_ep_cost = float(buf_cost.mean())
-            avg_ep_len  = max_steps
+            avg_ep_len  = float(max_steps)
 
         avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
 
-        cost_limit_step = 0.01   # target unsafe probability per step
+        # Target unsafe probability per step
+        cost_limit_step = 0.01
         lambda_max = 20.0
 
-        lam_mult = torch.clamp(
-            lam_mult + lambda_lr * torch.tensor(avg_step_cost - cost_limit_step, device=device),
-            min=0.0,
-            max=lambda_max
-)
+        # ---- IMPORTANT CHANGE HERE ----
+        # Update lambda as a Python float (allows decrease when below limit)
+        lam_val = float(lam_mult.item())
+        lam_val = lam_val + lambda_lr * (avg_step_cost - cost_limit_step)
+        lam_val = max(0.0, min(lambda_max, lam_val))
+        lam_mult = torch.tensor(lam_val, device=device)
 
 
         # -------------------------
@@ -282,6 +285,7 @@ def train(
             "approx_kl": float(approx_kl),
             "avg_step_cost_lastN": avg_step_cost,
             "cost_limit_step": cost_limit_step,
+            "lambda_update_delta": float(lambda_lr * (avg_step_cost - cost_limit_step)),
             "time_elapsed_sec": float(time.time() - start_time),
         }
         history.append(log)
