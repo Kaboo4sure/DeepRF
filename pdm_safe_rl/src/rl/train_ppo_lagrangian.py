@@ -179,7 +179,8 @@ def train(
 
         # Normalize advantages
         adv_r = (adv_r - adv_r.mean()) / (adv_r.std() + 1e-8)
-        adv_c = (adv_c - adv_c.mean()) / (adv_c.std() + 1e-8)
+        #adv_c = (adv_c - adv_c.mean()) / (adv_c.std() + 1e-8)
+        adv_c = adv_c - adv_c.mean()
 
         # Convert to tensors
         obs_t = torch.tensor(buf_obs, dtype=torch.float32, device=device)
