@@ -377,20 +377,24 @@ def main(cfg: SACConfig):
             lam_val = float(np.clip(lam_val + lam_update, 0.0, cfg.lambda_max))
 
         # periodic logging to history.json
+        # periodic logging to history.json
         if (step % cfg.log_every_steps == 0) or (step == cfg.total_steps):
             stats = compute_stats(lastN=10)
+
             entry = {
                 "iter": int(step),
-                "avg_return_last10eps": stats["avg_return_last10eps"],
-                "avg_cost_last10eps": stats["avg_cost_last10eps"],
-                "avg_len_last10eps": stats["avg_len_last10eps"],
-                "avg_p_unsafe_per_step_last10eps": stats["avg_p_unsafe_per_step_last10eps"],
+                "avg_return_last10eps": float(stats["avg_return_last10eps"]),
+                "avg_cost_last10eps": float(stats["avg_cost_last10eps"]),
+                "avg_len_last10eps": float(stats["avg_len_last10eps"]),
+                "avg_p_unsafe_per_step_last10eps": float(stats["avg_p_unsafe_per_step_last10eps"]),
                 "lambda": float(lam_val),
                 "cost_limit_step": float(cfg.cost_limit_step),
                 "alpha": float(log_alpha.exp().item()),
                 "time_elapsed_sec": float(time.time() - t0),
             }
+
             history.append(entry)
+
             with open(os.path.join(cfg.run_dir, "history.json"), "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2)
 
