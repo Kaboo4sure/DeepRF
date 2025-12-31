@@ -197,7 +197,7 @@ def train(
        # --- Dual ascent on per-step cost (stable float update) ---
         # --- Update Lagrange multiplier (dual ascent) ---
         N = 10
-        lambda_max = 20.0
+        lambda_max = 50.0
 
         if len(ep_costs) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
@@ -337,8 +337,8 @@ if __name__ == "__main__":
         total_iters=200,
         steps_per_iter=4000,
         seed=42,
-        cost_limit=0.05,
-        lambda_lr=0.05,
+        cost_limit=0.01,
+        lambda_lr=0.02,
         rul_min=100.0,
         max_steps=300,
         model_dir="models/ensemble_rul_sim",
