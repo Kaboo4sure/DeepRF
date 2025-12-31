@@ -4,15 +4,14 @@ import json
 import time
 import math
 from dataclasses import dataclass
+from typing import Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
 import gymnasium as gym
 
-# calling from where the environment is registered
 from src.env.maintenance_env import MaintenanceEnv
 
 
@@ -37,7 +36,7 @@ class ReplayBuffer:
         self.obs_buf = np.zeros((size, obs_dim), dtype=np.float32)
         self.obs2_buf = np.zeros((size, obs_dim), dtype=np.float32)
 
-        # DISCRETE actions stored as int64
+        # discrete actions stored as int64
         self.act_buf = np.zeros((size,), dtype=np.int64)
 
         self.rew_buf = np.zeros((size,), dtype=np.float32)
@@ -86,10 +85,13 @@ class DiscretePolicy(nn.Module):
     """
     Categorical policy pi(a|s) for discrete SAC.
     """
-    def __init__(self, obs_dim, act_dim, hidden_sizes=(256, 256)):
+    def __init__(self, obs_dim, act_dim, hidden_sizes=(128, 128)):
         super().__init__()
-        self.logits_net = mlp([obs_dim] + list(hidden_sizes) + [act_dim],
-                              activation=nn.ReLU, output_activation=nn.Identity)
+        self.logits_net = mlp(
+            [obs_dim] + list(hidden_sizes) + [act_dim],
+            activation=nn.ReLU,
+            output_activation=nn.Identity
+        )
 
     def forward(self, obs):
         return self.logits_net(obs)  # logits
@@ -98,10 +100,16 @@ class DiscretePolicy(nn.Module):
         logits = self.forward(obs)
         return torch.distributions.Categorical(logits=logits)
 
+    def probs_and_logprobs(self, obs) -> Tuple[torch.Tensor, torch.Tensor]:
+        logits = self.forward(obs)
+        pi = torch.softmax(logits, dim=-1)
+        logpi = torch.log(pi + 1e-8)
+        return pi, logpi
+
     def sample(self, obs):
         dist = self.dist(obs)
-        a = dist.sample()  # (B,)
-        logp = dist.log_prob(a).unsqueeze(-1)  # (B,1)
+        a = dist.sample()                       # (B,)
+        logp = dist.log_prob(a).unsqueeze(-1)   # (B,1)
         return a, logp
 
 
@@ -109,7 +117,7 @@ class DiscreteQ(nn.Module):
     """
     Q(s, ·) outputs Q-values for all discrete actions.
     """
-    def __init__(self, obs_dim, act_dim, hidden_sizes=(256, 256)):
+    def __init__(self, obs_dim, act_dim, hidden_sizes=(128, 128)):
         super().__init__()
         self.q = mlp([obs_dim] + list(hidden_sizes) + [act_dim], activation=nn.ReLU)
 
@@ -125,15 +133,22 @@ class SACConfig:
     seed: int = 42
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
+    # performance knobs
+    torch_num_threads: int = 4  # set to 1/2/4 on Windows for better speed
+
     # env
     max_steps: int = 300
 
     # training
     total_steps: int = 300_000
-    start_steps: int = 2_000          # random actions before policy
+    start_steps: int = 2_000
     update_after: int = 2_000
-    update_every: int = 50            # how often to update (in env steps)
-    updates_per_step: int = 1          # gradient steps per env step when updating
+
+    # Update schedule:
+    # Every update_every env steps, do updates_per_trigger gradient updates.
+    update_every: int = 200
+    updates_per_trigger: int = 20
+
     batch_size: int = 256
     replay_size: int = 500_000
 
@@ -142,21 +157,19 @@ class SACConfig:
     tau: float = 0.005
     actor_lr: float = 3e-4
     critic_lr: float = 3e-4
-    alpha_lr: float = 3e-4
-    init_alpha: float = 0.2
-    target_entropy: float = None  # if None -> 0.8 * log(act_dim)
+
+    # IMPORTANT: freeze alpha (debug mode)
+    fixed_alpha: float = 0.10
 
     # constraint / lagrangian
     cost_limit_step: float = 0.01
     lambda_lr: float = 0.01
     lambda_max: float = 50.0
-
-    # dual update averaging window (steps)
     dual_avg_window: int = 2000
 
     # logging
     log_every_steps: int = 10_000
-    run_dir: str = "runs/sac_lagrangian"
+    run_dir: str = "runs/sac_lagrangian_discrete"
 
 
 # ----------------------------
@@ -165,6 +178,12 @@ class SACConfig:
 def main(cfg: SACConfig):
     set_seed(cfg.seed)
     os.makedirs(cfg.run_dir, exist_ok=True)
+
+    # threading (CPU speed on Windows)
+    try:
+        torch.set_num_threads(int(cfg.torch_num_threads))
+    except Exception:
+        pass
 
     env = MaintenanceEnv(max_steps=cfg.max_steps)
     assert isinstance(env.action_space, gym.spaces.Discrete), \
@@ -202,26 +221,19 @@ def main(cfg: SACConfig):
         lr=cfg.critic_lr
     )
 
-    # entropy temperature (learned)
-    log_alpha = torch.tensor(math.log(cfg.init_alpha), requires_grad=True, device=device)
-    alpha_opt = optim.Adam([log_alpha], lr=cfg.alpha_lr)
+    # fixed alpha
+    alpha = torch.tensor(float(cfg.fixed_alpha), device=device, dtype=torch.float32)
 
     # lagrange multiplier (dual variable)
     lam_val = 0.0
 
-    # target entropy (discrete)
-    if cfg.target_entropy is None:
-        target_entropy = 0.8 * float(np.log(act_dim))
-    else:
-        target_entropy = float(cfg.target_entropy)
-
     # replay
     replay = ReplayBuffer(obs_dim, size=cfg.replay_size)
 
-    # logging containers
+    # logs
     history = []
     ep_returns, ep_costs, ep_lens = [], [], []
-    step_costs = []  # per-step constraint cost history for dual update
+    step_costs = []
 
     t0 = time.time()
     obs, info = env.reset(seed=cfg.seed)
@@ -242,7 +254,6 @@ def main(cfg: SACConfig):
                 avg_p_unsafe_per_step_last10eps=0.0,
             )
         N = min(lastN, len(ep_returns))
-        # avg per-step unsafe over recent steps (windowed)
         recent_steps = step_costs[-max(1, 1000):] if len(step_costs) else [0.0]
         return dict(
             avg_return_last10eps=float(np.mean(ep_returns[-N:])),
@@ -290,35 +301,26 @@ def main(cfg: SACConfig):
 
         # updates
         if step >= cfg.update_after and (step % cfg.update_every == 0):
-            num_updates = cfg.update_every * cfg.updates_per_step
-            for _ in range(num_updates):
+            for _ in range(cfg.updates_per_trigger):
                 batch = replay.sample_batch(cfg.batch_size)
                 o = to_tensor(batch["obs"], device)
                 o2 = to_tensor(batch["obs2"], device)
                 a_idx = torch.as_tensor(batch["act"], device=device, dtype=torch.long)  # (B,)
-                r = to_tensor(batch["rew"], device).unsqueeze(-1)   # (B,1)
-                c = to_tensor(batch["cost"], device).unsqueeze(-1)  # (B,1)
-                d = to_tensor(batch["done"], device).unsqueeze(-1)  # (B,1)
-
-                alpha = log_alpha.exp()
+                r = to_tensor(batch["rew"], device).unsqueeze(-1)
+                c = to_tensor(batch["cost"], device).unsqueeze(-1)
+                d = to_tensor(batch["done"], device).unsqueeze(-1)
 
                 # ---------- Targets ----------
                 with torch.no_grad():
-                    dist2 = actor.dist(o2)
-                    pi2 = dist2.probs                         # (B,A)
-                    logpi2 = torch.log(pi2 + 1e-8)            # (B,A)
+                    pi2, logpi2 = actor.probs_and_logprobs(o2)
 
-                    # reward soft value V_r(s')
-                    q1r_next = q1r_targ(o2)
-                    q2r_next = q2r_targ(o2)
-                    q_r_next = torch.min(q1r_next, q2r_next)  # (B,A)
-                    v_r = (pi2 * (q_r_next - alpha.detach() * logpi2)).sum(dim=-1, keepdim=True)
+                    # reward soft value V_r(s') = E_a[ Q - alpha log pi ]
+                    q_r_next = torch.min(q1r_targ(o2), q2r_targ(o2))  # (B,A)
+                    v_r = (pi2 * (q_r_next - alpha * logpi2)).sum(dim=-1, keepdim=True)
                     backup_r = r + cfg.gamma * (1 - d) * v_r
 
-                    # cost value V_c(s') (no entropy)
-                    q1c_next = q1c_targ(o2)
-                    q2c_next = q2c_targ(o2)
-                    q_c_next = torch.min(q1c_next, q2c_next)  # (B,A)
+                    # cost value V_c(s') = E_a[ Q_c ]
+                    q_c_next = torch.min(q1c_targ(o2), q2c_targ(o2))
                     v_c = (pi2 * q_c_next).sum(dim=-1, keepdim=True)
                     backup_c = c + cfg.gamma * (1 - d) * v_c
 
@@ -336,30 +338,18 @@ def main(cfg: SACConfig):
                 q_opt.step()
 
                 # ---------- Actor loss ----------
-                dist = actor.dist(o)
-                pi = dist.probs
-                logpi = torch.log(pi + 1e-8)
-
-                q_r_min = torch.min(q1r(o), q2r(o))  # (B,A)
-                q_c_min = torch.min(q1c(o), q2c(o))  # (B,A)
+                pi, logpi = actor.probs_and_logprobs(o)
+                q_r_min = torch.min(q1r(o), q2r(o))
+                q_c_min = torch.min(q1c(o), q2c(o))
 
                 lam = torch.tensor(lam_val, dtype=torch.float32, device=device)
 
                 # minimize: E_a[ alpha log pi - Qr + lam Qc ]
-                pi_loss = (pi * (alpha.detach() * logpi - q_r_min + lam * q_c_min)).sum(dim=-1).mean()
+                pi_loss = (pi * (alpha * logpi - q_r_min + lam * q_c_min)).sum(dim=-1).mean()
 
                 pi_opt.zero_grad()
                 pi_loss.backward()
                 pi_opt.step()
-
-                # ---------- Alpha (temperature) loss ----------
-                # entropy = -sum pi log pi
-                entropy = -(pi * logpi).sum(dim=-1).mean()
-                alpha_loss = -(log_alpha * (entropy.detach() - target_entropy))
-
-                alpha_opt.zero_grad()
-                alpha_loss.backward()
-                alpha_opt.step()
 
                 # ---------- Soft update targets ----------
                 soft_update(q1r, q1r_targ, cfg.tau)
@@ -376,10 +366,15 @@ def main(cfg: SACConfig):
             lam_update = cfg.lambda_lr * (avg_step_cost - cfg.cost_limit_step)
             lam_val = float(np.clip(lam_val + lam_update, 0.0, cfg.lambda_max))
 
-        # periodic logging to history.json
-        # periodic logging to history.json
+        # periodic logging
         if (step % cfg.log_every_steps == 0) or (step == cfg.total_steps):
             stats = compute_stats(lastN=10)
+
+            # report entropy for monitoring (even though alpha is fixed)
+            with torch.no_grad():
+                o_t = to_tensor(obs, device).unsqueeze(0)
+                pi_now, logpi_now = actor.probs_and_logprobs(o_t)
+                entropy_now = float((-(pi_now * logpi_now).sum(dim=-1)).mean().item())
 
             entry = {
                 "iter": int(step),
@@ -389,12 +384,12 @@ def main(cfg: SACConfig):
                 "avg_p_unsafe_per_step_last10eps": float(stats["avg_p_unsafe_per_step_last10eps"]),
                 "lambda": float(lam_val),
                 "cost_limit_step": float(cfg.cost_limit_step),
-                "alpha": float(log_alpha.exp().item()),
+                "alpha": float(alpha.item()),
+                "entropy": float(entropy_now),
                 "time_elapsed_sec": float(time.time() - t0),
             }
 
             history.append(entry)
-
             with open(os.path.join(cfg.run_dir, "history.json"), "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2)
 
@@ -406,9 +401,14 @@ def main(cfg: SACConfig):
 if __name__ == "__main__":
     cfg = SACConfig(
         total_steps=300_000,
+        run_dir="runs/sac_lagrangian_discrete",
+        # speed knobs:
+        update_every=200,
+        updates_per_trigger=20,
+        fixed_alpha=0.10,
+        log_every_steps=10_000,
         lambda_lr=0.01,
         cost_limit_step=0.01,
-        run_dir="runs/sac_lagrangian",
-        log_every_steps=10_000,
+        torch_num_threads=4,
     )
     main(cfg)
