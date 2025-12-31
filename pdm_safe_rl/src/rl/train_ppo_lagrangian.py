@@ -196,25 +196,35 @@ def train(
         # --- Dual ascent on per-step cost ---
        # --- Dual ascent on per-step cost (stable float update) ---
         # --- Update Lagrange multiplier (dual ascent) ---
+        # --- Dual ascent on per-step cost (smoothed + capped) ---
         N = 30
-        lambda_max = 50.0
+        lambda_max = 20.0
+        cost_limit_step = 0.01
 
         if len(ep_costs) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
-            avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else float(max_steps)
+            avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else max_steps
         else:
-            # buf_cost.mean() is already per-step mean p_unsafe over the rollout
-            avg_ep_cost = float(buf_cost.mean() * max_steps)
+            avg_ep_cost = float(buf_cost.mean())
             avg_ep_len  = float(max_steps)
 
-        avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)   # <-- per-step risk in [0,1]
+        avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
 
-        # Dual update: increase lambda if avg_step_cost > cost_limit, decrease otherwise
+        # deadband to prevent tiny oscillations around the limit
+        eps = 0.002
+        diff = avg_step_cost - cost_limit_step
+        if abs(diff) < eps:
+            diff = 0.0
+
+        # cap how much lambda can change per iteration
+        max_delta = 0.03  # try 0.02–0.05
+        lam_update = float(np.clip(lambda_lr * diff, -max_delta, max_delta))
+
         lam_val = float(lam_mult.item())
-        lam_update = lambda_lr * (avg_step_cost - cost_limit)
         lam_val = lam_val + lam_update
         lam_val = max(0.0, min(lambda_max, lam_val))
         lam_mult = torch.tensor(lam_val, device=device)
+
 
 
 
