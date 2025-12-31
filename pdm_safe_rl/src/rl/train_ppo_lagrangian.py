@@ -236,6 +236,7 @@ def train(
         idxs = np.arange(n)
 
         approx_kl = 0.0
+        stop = False
         for epoch in range(train_epochs):
             np.random.shuffle(idxs)
             for start in range(0, n, minibatch_size):
@@ -277,6 +278,8 @@ def train(
 
             if approx_kl > 1.5 * target_kl:
                 break
+        if stop:
+            break
 
         # -------------------------
         # Save + log
