@@ -196,7 +196,7 @@ def train(
         # --- Dual ascent on per-step cost ---
        # --- Dual ascent on per-step cost (stable float update) ---
         # --- Update Lagrange multiplier (dual ascent) ---
-        N = 10
+        N = 30
         lambda_max = 50.0
 
         if len(ep_costs) > 0:
