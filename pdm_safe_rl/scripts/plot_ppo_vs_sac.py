@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # scripts/..
 PPO_HIST = os.path.join(ROOT, "runs", "ppo_lagrangian", "history.json")
-SAC_HIST = os.path.join(ROOT, "runs", "sac_lagrangian", "history.json")
+SAC_HIST = os.path.join(ROOT, "runs", "sac_lagrangian_discrete", "history.json")
 OUT_DIR  = os.path.join(ROOT, "runs", "comparisons")
 os.makedirs(OUT_DIR, exist_ok=True)
 
