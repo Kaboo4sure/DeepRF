@@ -1,0 +1,135 @@
+# DeepRF — `pdm_safe_rl` (Safe RL for Predictive Maintenance)
+
+
+This repository contains a **proof-of-concept safe reinforcement learning (RL)** pipeline for **single-asset predictive maintenance** using NASA’s **C-MAPSS** run-to-failure turbofan dataset. The goal is to learn a maintenance policy that optimizes performance (reward) **while explicitly enforcing safety/risk constraints** using a **Constrained Markov Decision Process (CMDP)** and a **Lagrangian dual update**.
+
+Two constrained RL baselines are implemented and compared:
+
+- **PPO-Lagrangian** (discrete actions)
+- **Discrete SAC-Lagrangian** (discrete actions)
+
+> ✅ Current scope: **single asset** (one engine/asset at a time)  
+> 🔜 Future scope: **multi-asset / multi-agent** extensions (not implemented yet)
+
+---
+
+## Key idea (how this translates to maintenance decisions)
+
+At each decision step, the agent:
+1. Observes a health state derived from sensor measurements + operating conditions.
+2. Uses the ensemble risk model to estimate failure risk (`p_unsafe`).
+3. Selects a maintenance action from a discrete set (e.g., do nothing, inspect, preventive repair, replace).
+4. Uses CMDP constraints so decisions are **risk-aware**, not only reward-driven.
+
+Instead of only predicting Remaining Useful Life (RUL), the framework answers:
+
+> **When should maintenance be performed, and what action should be taken, under uncertainty and risk constraints?**
+
+---
+
+## Repository structure
+
+```text
+pdm_safe_rl/
+├─ models/
+│  └─ ensemble_rul_sim/                 # trained ensemble used for risk estimation
+│
+├─ runs/
+│  ├─ ppo_lagrangian/                   # PPO outputs + plots
+│  ├─ sac_lagrangian/                   # early/short SAC run (legacy)
+│  ├─ sac_lagrangian_discrete/          # ✅ correct SAC run (main)
+│  └─ comparisons/                      # PPO vs SAC overlay plots
+│
+├─ scripts/
+│  └─ plot_ppo_vs_sac.py                # overlays for PPO vs SAC comparisons
+│
+└─ src/
+   ├─ data/                             # CMAPSS download/preprocess + ensemble tools
+   ├─ env/                              # gymnasium MaintenanceEnv (CMDP)
+   └─ rl/                               # PPO-Lagrangian + SAC-Lagrangian training
+
+
+# Setup
+## Create a vitual environment
+cd pdm_safe_rl
+python -m venv .venv
+
+## Activate
+.venv\Scripts\Activate
+
+# Install requirements
+pip install -r src/requirements.txt
+
+
+# Data
+The project uses NASA C-MAPSS (run-to-failure) data stored under:
+- src/data/data/raw/cmapss/CMAPSSData/
+- processed outputs under:
+- src/data/data/processed/cmapss/
+
+Core scripts:
+- src/data/download_cmapss.py
+- src/data/preprocess_cmapss.py
+
+# Risk model (Ensemble) for p_unsafe
+Risk feedback is derived from an ensemble model trained to predict RUL distribution.
+- Artifacts: 
+ - models/ensemble_rul_sim/ (models + scaler)
+- Training/inference:
+ - src/data/train_ensemble_sim.py
+ - src/data/predict_rul_ensemble.py
+The risk estimate used as CMDP constraint cost is:
+ - p_unsafe = P(RUL < RUL_min) (empirical via ensemble)
+
+# Run training
+## PPO-Lagrangian (baseline)
+- From project root:
+<python -m src.rl.train_ppo_lagrangian>
+
+### Outputs:
+ - runs/ppo_lagrangian/history.json
+ - runs/ppo_lagrangian/final.pt
+ - runs/ppo_lagrangian/figures/*.png|pdf
+
+## Discrete SAC-Lagrangian (main)
+- From project root:
+<python -m src.rl.train_sac_lagrangian>
+
+### Outputs (main run):
+- runs/sac_lagrangian_discrete/history.json
+- runs/sac_lagrangian_discrete/figures/*.png|pdf
+⚠️ There are two SAC run folders:
+  - runs/sac_lagrangian/ (older short run)
+  - runs/sac_lagrangian_discrete/ (correct full run)
+Use sac_lagrangian_discrete for plots and reporting.
+
+# Plot results
+## PPO plots
+<cd runs/ppo_lagrangian
+python Plot.py>
+
+## SAC plots (Discrete) — use correct run folder
+<cd runs/sac_lagrangian_discrete
+python Plot_SAC.py>
+
+## PPO vs SAC overlays
+From project root:
+<python scripts/plot_ppo_vs_sac.py>
+
+## Outputs:
+- runs/comparisons/overlay_safety_ppo_vs_sac.png|pdf
+- uns/comparisons/overlay_lambda_ppo_vs_sac.png|pdf
+- runs/comparisons/overlay_return_ppo_vs_sac.png|pdf
+
+- SAC-specific:
+ - runs/comparisons/sac_alpha.png|pdf
+ - runs/comparisons/sac_entropy.png|pdf
+
+What the plots mean (high-level)
+- Safety (p_unsafe): tracks risk of unsafe operation. Target limit is stored as cost_limit_step.
+- Dual variable (λ): increases when safety violations persist (stronger penalty), decreases/levels if safe.
+- Return: maintenance utility / economic performance under safety constraints.
+- PPO-only: approx_kl monitors PPO update size.
+- SAC-only: alpha and entropy indicate exploration dynamics (discrete SAC often shows early entropy collapse).
+
+C-MAPP Data citation: Citation: Saxena, A., et al. (2008). Damage Propagation Modeling for Aircraft Engine Run-to-Failure Simulation. NASA Ames.
