@@ -80,14 +80,14 @@ def build_runs(extract_dir: str, max_runs: int = None) -> List[Dict]:
 
 
 def main():
-    # Must match download_bearing.py
-    extract_dir = "data/raw/ims_bearing/IMS_Bearing_Data"
-    out_pkl = "data/raw/ims_bearing/runs.pkl"
+    # Match your actual folder structure
+    extract_dir = "src/data/data/raw/ims_bearing/IMS_Bearing_Data/4. Bearings"
+    out_pkl = "src/data/data/raw/ims_bearing/runs.pkl"
 
     if not os.path.exists(extract_dir):
         raise FileNotFoundError(
             f"Extract directory not found: {extract_dir}\n"
-            "Run: python src/data/download_bearing.py"
+            "Check that IMS_Bearing_Data.zip was downloaded and extracted."
         )
 
     print(f"Building runs from: {extract_dir}")
@@ -100,15 +100,14 @@ def main():
 
     os.makedirs(os.path.dirname(out_pkl), exist_ok=True)
     with open(out_pkl, "wb") as f:
+        import pickle
         pickle.dump(runs, f)
 
-    # quick summary
     d = runs[0]["X"].shape[1]
     T0 = runs[0]["X"].shape[0]
     print(f"Saved runs to: {out_pkl}")
     print(f"Example run: T={T0}, feature_dim={d}")
     print(f"Example RUL head: {runs[0]['rul'][:5].tolist()}")
-
 
 if __name__ == "__main__":
     main()
