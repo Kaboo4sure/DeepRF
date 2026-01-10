@@ -6,3 +6,4 @@ torch
 matplotlib
 tqdm
 joblib
+py7zr
