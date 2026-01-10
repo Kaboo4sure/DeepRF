@@ -1,12 +1,15 @@
 import os
+import pickle
 import numpy as np
 import pandas as pd
 from typing import List, Dict
 from scipy.stats import kurtosis, skew
 
+
 def natural_key(s: str):
     import re
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
 
 def load_vibration_file(path: str) -> np.ndarray:
     df = pd.read_csv(path, header=None, sep=r"[\s,]+", engine="python")
@@ -14,6 +17,7 @@ def load_vibration_file(path: str) -> np.ndarray:
     if x.ndim == 1:
         x = x.reshape(-1, 1)
     return x
+
 
 def time_features(x: np.ndarray) -> np.ndarray:
     feats = []
@@ -29,12 +33,14 @@ def time_features(x: np.ndarray) -> np.ndarray:
         feats.extend([mean, std, rms, k, sk, peak, crest])
     return np.array(feats, dtype=np.float32)
 
+
 def list_experiment_dirs(extract_dir: str, min_files: int = 50) -> List[str]:
     exp_dirs = []
     for root, _, files in os.walk(extract_dir):
         if len(files) >= min_files:
             exp_dirs.append(root)
     return sorted(set(exp_dirs))
+
 
 def build_runs(extract_dir: str, max_runs: int = None) -> List[Dict]:
     runs = []
@@ -44,9 +50,10 @@ def build_runs(extract_dir: str, max_runs: int = None) -> List[Dict]:
         exp_dirs = exp_dirs[:max_runs]
 
     for exp_dir in exp_dirs:
-        files = sorted([f for f in os.listdir(exp_dir) if os.path.isfile(os.path.join(exp_dir, f))],
-                       key=natural_key)
-        # filter obvious non-data
+        files = sorted(
+            [f for f in os.listdir(exp_dir) if os.path.isfile(os.path.join(exp_dir, f))],
+            key=natural_key,
+        )
         files = [f for f in files if not f.lower().endswith((".pdf", ".doc", ".docx"))]
         paths = [os.path.join(exp_dir, f) for f in files]
         T = len(paths)
@@ -61,10 +68,47 @@ def build_runs(extract_dir: str, max_runs: int = None) -> List[Dict]:
             X.append(feat)
             rul.append((T - 1 - i))  # step-based RUL
 
-        runs.append({
-            "exp_dir": exp_dir,
-            "X": np.stack(X, axis=0).astype(np.float32),
-            "rul": np.array(rul, dtype=np.float32),
-        })
+        runs.append(
+            {
+                "exp_dir": exp_dir,
+                "X": np.stack(X, axis=0).astype(np.float32),
+                "rul": np.array(rul, dtype=np.float32),
+            }
+        )
 
     return runs
+
+
+def main():
+    # Must match download_bearing.py
+    extract_dir = "data/raw/ims_bearing/IMS_Bearing_Data"
+    out_pkl = "data/raw/ims_bearing/runs.pkl"
+
+    if not os.path.exists(extract_dir):
+        raise FileNotFoundError(
+            f"Extract directory not found: {extract_dir}\n"
+            "Run: python src/data/download_bearing.py"
+        )
+
+    print(f"Building runs from: {extract_dir}")
+    runs = build_runs(extract_dir=extract_dir, max_runs=None)
+    print(f"Built {len(runs)} run(s).")
+
+    if len(runs) == 0:
+        print("No runs found. Check that the extracted folder contains many data files per run.")
+        return
+
+    os.makedirs(os.path.dirname(out_pkl), exist_ok=True)
+    with open(out_pkl, "wb") as f:
+        pickle.dump(runs, f)
+
+    # quick summary
+    d = runs[0]["X"].shape[1]
+    T0 = runs[0]["X"].shape[0]
+    print(f"Saved runs to: {out_pkl}")
+    print(f"Example run: T={T0}, feature_dim={d}")
+    print(f"Example RUL head: {runs[0]['rul'][:5].tolist()}")
+
+
+if __name__ == "__main__":
+    main()
