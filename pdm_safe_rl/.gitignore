@@ -36,3 +36,8 @@ wandb/
 Thumbs.db
 .vscode/
 .idea/
+
+# Others
+*.zip
+*.7z
+*.rar
