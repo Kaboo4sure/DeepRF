@@ -19,9 +19,12 @@ class MLP(nn.Module):
         return self.net(x)
 
 class EnsembleRUL:
-    def __init__(self, model_dir="models/ensemble_rul_sim", n_models=5):
+    def __init__(self, model_dir="models/ensemble_rul_sim", n_models=5, in_dim=None):
         self.model_dir = model_dir
         self.n_models = n_models
+
+        # Default to the original behavior
+        self.in_dim = in_dim if in_dim is not None else len(FEATURES)
 
         scaler_path = os.path.join(model_dir, "scaler.pkl")
         if not os.path.exists(scaler_path):
@@ -37,7 +40,7 @@ class EnsembleRUL:
             if not os.path.exists(ckpt):
                 raise FileNotFoundError(f"Model checkpoint not found: {ckpt}")
 
-            m = MLP(in_dim=len(FEATURES))
+            m = MLP(in_dim=self.in_dim)
             state = torch.load(ckpt, map_location="cpu")
             m.load_state_dict(state)
             m.eval()
