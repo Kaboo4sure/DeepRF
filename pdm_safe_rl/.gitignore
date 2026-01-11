@@ -1,0 +1,38 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+.env.*
+
+# =========================
+# Data (RAW - DO NOT TRACK)
+# =========================
+src/data/data/raw/**
+
+# Allow derived small artifacts if needed
+!src/data/data/raw/ims_bearing/runs.pkl
+!src/data/data/raw/cmapss/**
+
+# =========================
+# Models / outputs
+# =========================
+runs/
+logs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+
+# =========================
+# OS / IDE
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
