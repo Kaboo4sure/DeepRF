@@ -81,7 +81,7 @@ def build_runs(extract_dir: str, max_runs: int = None) -> List[Dict]:
 
 def main():
     # Match your actual folder structure
-    extract_dir = "src/data/data/raw/ims_bearing/IMS_Bearing_Data/4. Bearings"
+    extract_dir = "src/data/data/raw/ims_bearing/IMS_Bearing_Data/4. Bearings/IMS_extracted"
     out_pkl = "src/data/data/raw/ims_bearing/runs.pkl"
 
     if not os.path.exists(extract_dir):
