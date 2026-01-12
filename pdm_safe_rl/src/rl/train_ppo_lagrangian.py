@@ -157,17 +157,7 @@ def train(
             a = int(a.item())
 
             next_obs, reward, terminated, truncated, info = env.step(a)
-            
-            if it == 1 and t < 20:
-                print("DEBUG:",
-                    "t=", t,
-                    "terminated=", terminated,
-                    "truncated=", truncated,
-                    "env_t=", info.get("t"),
-                    "true_rul=", info.get("true_rul"),
-                    "run_idx=", info.get("run_idx"),
-                    flush=True)
-
+                      
             done = terminated or truncated
 
             cost = float(info.get("constraint_cost", 0.0))
