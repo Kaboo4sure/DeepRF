@@ -44,6 +44,7 @@ class NASABearingMaintenanceEnv(gym.Env):
         c_minor=8.0,
         c_replace=25.0,
         c_failure=200.0,
+        max_steps=300,
         c_operate=0.2,
         seed=42,
     ):
@@ -128,6 +129,7 @@ class NASABearingMaintenanceEnv(gym.Env):
         self.X = run["X"].astype(np.float32)
         self.rul = run["rul"].astype(np.float32)
         self.T = int(self.X.shape[0])
+        self.episode_step = 0
         self.t = 0
 
         # sanity: enforce consistent dimension
@@ -152,71 +154,50 @@ class NASABearingMaintenanceEnv(gym.Env):
 
     def step(self, action):
         action = int(action)
-        assert self.action_space.contains(action)
 
-        done_by_maint = False
+        # apply action cost/effects (but DO NOT terminate because of action)
         action_cost = 0.0
-
         if action == 0:
             action_cost = 0.0
         elif action == 1:
             action_cost = self.c_inspect
         elif action == 2:
             action_cost = self.c_minor
-            done_by_maint = True
+            # optional: you may “improve health” by moving back a few indices
+            # self.t = max(0, self.t - self.repair_back_steps)
         elif action == 3:
             action_cost = self.c_replace
-            done_by_maint = True
+            # optional: replacement effect
+            # self.t = 0
 
-        # operating cost always applies each step you keep running
-        step_cost = self.c_operate + action_cost
-
-        # If maintenance action, terminate episode immediately (you intervened)
-        if done_by_maint:
-            obs, mu, sigma, p_unsafe = self._get_obs()
-            reward = -float(step_cost)
-            terminated = True
-            truncated = False
-            info = {
-                "run_idx": self.run_idx,
-                "t": self.t,
-                "true_rul": float(self.rul[self.t]),
-                "mu_rul": mu,
-                "sigma_rul": sigma,
-                "p_unsafe": p_unsafe,
-                "constraint_cost": p_unsafe,
-                "done_reason": "maintenance",
-                "action": action,
-            }
-            return obs, reward, terminated, truncated, info
-
-        # Otherwise proceed to next time step
+        # advance time by 1 step in the run
         self.t += 1
+        self.episode_step += 1
 
-        # If we reached end, that's "failure" (run-to-failure completed)
-        failed = self.t >= (self.T - 1)
-        terminated = bool(failed)
-        truncated = False  # no max_steps needed; T defines horizon
+        # end-of-run termination (ONLY)
+        T = self.current_T  # or len(run["rul"])
+        terminated = (self.t >= T - 1)
 
-        if failed:
-            # apply failure penalty
-            step_cost += self.c_failure
-            # clamp t to last index for obs/info
-            self.t = self.T - 1
+        # training horizon truncation (ONLY)
+        truncated = (self.episode_step >= self.max_steps)
 
-        obs, mu, sigma, p_unsafe = self._get_obs()
-        reward = -float(step_cost)
+        # build obs (clamp index so you don’t crash at end)
+        t_idx = min(self.t, T - 1)
+        obs, mu, sigma, p_unsafe = self._get_obs(t_idx)
+
+        # reward, constraint_cost, info
+        cost = float(p_unsafe)
+        reward = -(self.c_operate + action_cost + (self.c_failure if terminated else 0.0))
 
         info = {
             "run_idx": self.run_idx,
-            "t": self.t,
-            "true_rul": float(self.rul[self.t]),
-            "mu_rul": mu,
-            "sigma_rul": sigma,
-            "p_unsafe": p_unsafe,
-            "constraint_cost": p_unsafe,
-            "failed": int(failed),
-            "done_reason": "failure" if failed else "continue",
-            "action": action,
+            "t": t_idx,
+            "true_rul": float(self.current_rul[t_idx]),
+            "mu_rul": float(mu),
+            "sigma_rul": float(sigma),
+            "p_unsafe": float(p_unsafe),
+            "constraint_cost": float(cost),
         }
-        return obs, reward, terminated, truncated, info
+
+        return obs, float(reward), bool(terminated), bool(truncated), info
+

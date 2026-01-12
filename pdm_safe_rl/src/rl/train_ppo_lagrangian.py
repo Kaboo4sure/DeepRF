@@ -76,7 +76,6 @@ def train(
     model_dir="models/ensemble_rul_sim",
     n_models=5,
     rul_min=15.0,
-    max_steps=300,
     device=None,
     #log_dir="runs/ppo_lagrangian"
     log_dir="runs/ims_bearing/ppo_lagrangian"
@@ -98,7 +97,7 @@ def train(
     runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
     model_dir="src/data/models/ensemble_rul_bearing",
     rul_min=rul_min,
-    max_steps=max_steps,
+    #max_steps=None,
     c_failure=200.0,
     c_operate=0.2,
     c_inspect=1.0,
@@ -158,6 +157,17 @@ def train(
             a = int(a.item())
 
             next_obs, reward, terminated, truncated, info = env.step(a)
+            
+            if it == 1 and t < 20:
+                print("DEBUG:",
+                    "t=", t,
+                    "terminated=", terminated,
+                    "truncated=", truncated,
+                    "env_t=", info.get("t"),
+                    "true_rul=", info.get("true_rul"),
+                    "run_idx=", info.get("run_idx"),
+                    flush=True)
+
             done = terminated or truncated
 
             cost = float(info.get("constraint_cost", 0.0))
@@ -213,16 +223,18 @@ def train(
        # --- Dual ascent on per-step cost (stable float update) ---
         # --- Update Lagrange multiplier (dual ascent) ---
         # --- Dual ascent on per-step cost (smoothed + capped) ---
+        # --- Update Lagrange multiplier (dual ascent) ---
         N = 30
         lambda_max = 20.0
         cost_limit_step = 0.01
 
-        if len(ep_costs) > 0:
+        # Use last N episodes if we have them; otherwise use buffer stats
+        if len(ep_costs) > 0 and len(ep_lens) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
-            avg_ep_len  = float(np.mean(ep_lens[-N:])) if len(ep_lens) > 0 else max_steps
+            avg_ep_len  = float(np.mean(ep_lens[-N:]))
         else:
-            avg_ep_cost = float(buf_cost.mean())
-            avg_ep_len  = float(max_steps)
+            avg_ep_cost = float(np.sum(buf_cost))  # total cost over rollout
+            avg_ep_len  = float(steps_per_iter)    # total steps
 
         avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
 
@@ -233,14 +245,13 @@ def train(
             diff = 0.0
 
         # cap how much lambda can change per iteration
-        max_delta = 0.03  # try 0.02–0.05
+        max_delta = 0.03
         lam_update = float(np.clip(lambda_lr * diff, -max_delta, max_delta))
 
         lam_val = float(lam_mult.item())
         lam_val = lam_val + lam_update
         lam_val = max(0.0, min(lambda_max, lam_val))
         lam_mult = torch.tensor(lam_val, device=device)
-
 
 
 
@@ -345,7 +356,7 @@ def train(
                     "model_dir": model_dir,
                     "n_models": n_models,
                     "rul_min": rul_min,
-                    "max_steps": max_steps,
+                    
                 }
             }
             with open(os.path.join(log_dir, "progress.jsonl"), "a", encoding="utf-8") as f:
@@ -369,7 +380,6 @@ if __name__ == "__main__":
         cost_limit=0.01,
         lambda_lr=0.3,
         rul_min=100.0,
-        max_steps=300,
         model_dir="models/ensemble_rul_sim",
         n_models=5,
     )
