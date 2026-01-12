@@ -1,0 +1,5 @@
+{
+  "input_dim": 29,
+  "n_models": 5,
+  "note": "Bearing ensemble RUL predictor; features + load(0)."
+}

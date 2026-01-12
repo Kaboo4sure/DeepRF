@@ -133,6 +133,6 @@ if __name__ == "__main__":
     # Example:
     # python src/data/models/ensemble_rul_bearing/train_ensemble_bearing.py
     #   -- but simplest is to edit the variables below.
-    RUNS_PKL = "data/ims/runs.pkl"  # you create this once
+    RUNS_PKL = "src/data/data/raw/ims_bearing/runs.pkl"  # you create this once
     OUT_DIR = "src/data/models/ensemble_rul_bearing"
     main(runs_path_npz=RUNS_PKL, out_dir=OUT_DIR, n_models=5)

@@ -16,6 +16,16 @@ def load_vibration_file(path: str) -> np.ndarray:
     x = df.values.astype(np.float32)
     if x.ndim == 1:
         x = x.reshape(-1, 1)
+
+    # ---- FORCE CONSISTENT CHANNEL COUNT ----
+    # Keep first 4 channels if available; otherwise keep whatever exists.
+    if x.shape[1] >= 4:
+        x = x[:, :4]
+    else:
+        # Option: drop runs with <4 channels (recommended for clean modeling)
+        # raise ValueError(f"Not enough channels in {path}: {x.shape[1]}")
+        pass
+
     return x
 
 
