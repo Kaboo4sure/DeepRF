@@ -1,17 +1,16 @@
 import os
-import json
 import joblib
 import numpy as np
 import torch
 import torch.nn as nn
 
 class MLP(nn.Module):
-    def __init__(self, in_dim: int):
+    def __init__(self, in_dim: int, hidden: int = 64):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_dim, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1),
+            nn.Linear(in_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, 1),
         )
 
     def forward(self, x):
@@ -19,29 +18,29 @@ class MLP(nn.Module):
 
 class EnsembleRULBearing:
     """
-    Loads an ensemble trained on IMS bearing features.
-    Expects X_np shape: (N, in_dim) where in_dim matches the training feature dimension.
+    Ensemble predictor for IMS bearing features.
+    Run from pdm_safe_rl root.
     """
 
-    def __init__(self, model_dir: str, n_models: int = 5):
+    def __init__(self, model_dir="src/data/models/ensemble_rul_bearing", n_models=5):
         self.model_dir = model_dir
         self.n_models = n_models
-
-        meta_path = os.path.join(model_dir, "meta.json")
-        if not os.path.exists(meta_path):
-            raise FileNotFoundError(f"meta.json not found: {meta_path}")
-        with open(meta_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
-
-        # We store input dimension in meta.json during training
-        self.in_dim = int(meta.get("in_dim", -1))
-        if self.in_dim <= 0:
-            raise ValueError(f"Invalid in_dim in meta.json: {self.in_dim}")
 
         scaler_path = os.path.join(model_dir, "scaler.pkl")
         if not os.path.exists(scaler_path):
             raise FileNotFoundError(f"scaler.pkl not found: {scaler_path}")
+
         self.scaler = joblib.load(scaler_path)
+
+        # ✅ Infer input dimension from scaler
+        if hasattr(self.scaler, "n_features_in_"):
+            self.in_dim = int(self.scaler.n_features_in_)
+        else:
+            # older sklearn fallback
+            mean_ = getattr(self.scaler, "mean_", None)
+            if mean_ is None:
+                raise ValueError("Could not infer in_dim from scaler.pkl")
+            self.in_dim = int(len(mean_))
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.models = []
@@ -51,7 +50,7 @@ class EnsembleRULBearing:
             if not os.path.exists(ckpt):
                 raise FileNotFoundError(f"Model checkpoint not found: {ckpt}")
 
-            m = MLP(in_dim=self.in_dim)
+            m = MLP(in_dim=self.in_dim, hidden=64)
             state = torch.load(ckpt, map_location="cpu")
             m.load_state_dict(state)
             m.eval()
@@ -60,9 +59,6 @@ class EnsembleRULBearing:
 
     @torch.no_grad()
     def predict_all(self, X_np: np.ndarray) -> np.ndarray:
-        """
-        Returns per-model predictions: shape (M, N)
-        """
         if X_np.ndim != 2 or X_np.shape[1] != self.in_dim:
             raise ValueError(f"Expected X shape (N, {self.in_dim}), got {X_np.shape}")
 
@@ -71,19 +67,12 @@ class EnsembleRULBearing:
 
         preds = []
         for m in self.models:
-            p = m(xt).squeeze(-1)  # (N,)
+            p = m(xt).squeeze(-1)
             preds.append(p)
 
-        P = torch.stack(preds, dim=0)  # (M, N)
+        P = torch.stack(preds, dim=0)
         return P.cpu().numpy()
 
     def predict_mu_sigma(self, X_np: np.ndarray):
-        """
-        Returns:
-          mu: (N,)
-          sigma: (N,) ensemble std dev (epistemic proxy)
-        """
         P = self.predict_all(X_np)
-        mu = P.mean(axis=0)
-        sigma = P.std(axis=0)
-        return mu, sigma
+        return P.mean(axis=0), P.std(axis=0)

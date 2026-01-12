@@ -4,7 +4,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from pdm_safe_rl.src.data.predict_rul_ensemble_bearing import EnsembleRULBearing
+from src.data.predict_rul_ensemble_bearing import EnsembleRULBearing
 
 class NASABearingMaintenanceEnv(gym.Env):
     """
@@ -35,8 +35,8 @@ class NASABearingMaintenanceEnv(gym.Env):
 
     def __init__(
         self,
-        runs_pkl="pdm_safe_rl/src/data/data/raw/ims_bearing/runs.pkl",
-        model_dir="pdm_safe_rl/src/data/models/ensemble_rul_bearing",
+        runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
+        model_dir="src/data/models/ensemble_rul_bearing",
         n_models=5,
         rul_min=15.0,
         # costs
@@ -91,16 +91,25 @@ class NASABearingMaintenanceEnv(gym.Env):
         self.T = 0
 
     def _predict_mu_sigma_and_risk(self, feat: np.ndarray):
-        # feat shape (d,)
+        # Ensemble was trained with an appended load column -> expects 29 dims
         Xinp = feat.reshape(1, -1).astype(np.float32)
+
+        if Xinp.shape[1] == (self.ens.in_dim - 1):
+            # Append dummy load = 0.0 to match training
+            Xinp = np.concatenate([Xinp, np.zeros((1, 1), dtype=np.float32)], axis=1)
+
+        elif Xinp.shape[1] != self.ens.in_dim:
+            raise ValueError(f"Feature dim mismatch: env={Xinp.shape[1]}, ensemble expects {self.ens.in_dim}")
 
         mu, sigma = self.ens.predict_mu_sigma(Xinp)
         mu_val = float(mu[0])
         sigma_val = float(sigma[0])
 
-        P = self.ens.predict_all(Xinp)  # (M, 1)
+        P = self.ens.predict_all(Xinp)
         p_unsafe = float((P[:, 0] < self.rul_min).mean())
+
         return mu_val, sigma_val, p_unsafe
+
 
     def _get_obs(self):
         feat = self.X[self.t].astype(np.float32)

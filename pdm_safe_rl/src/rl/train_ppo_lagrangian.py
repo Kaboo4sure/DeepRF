@@ -7,8 +7,9 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from src.env.maintenance_env import MaintenanceEnv
-
+#from src.env.maintenance_env import MaintenanceEnv
+from src.env.maintenance_NASABearing_env import NASABearingMaintenanceEnv
+# Added the above for bearing training
 # -----------------------------
 # Utils
 # -----------------------------
@@ -77,19 +78,33 @@ def train(
     rul_min=15.0,
     max_steps=300,
     device=None,
-    log_dir="runs/ppo_lagrangian"
+    #log_dir="runs/ppo_lagrangian"
+    log_dir="runs/ims_bearing/ppo_lagrangian"
+
 ):
     set_seed(seed)
     os.makedirs(log_dir, exist_ok=True)
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    env = MaintenanceEnv(
-        model_dir=model_dir,
-        n_models=n_models,
-        rul_min=rul_min,
-        max_steps=max_steps
-    )
+    #env = MaintenanceEnv(
+    #    model_dir=model_dir,
+    #    n_models=n_models,
+    #    rul_min=rul_min,
+    #    max_steps=max_steps
+   # )
+
+    env = NASABearingMaintenanceEnv(
+    runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
+    model_dir="src/data/models/ensemble_rul_bearing",
+    rul_min=rul_min,
+    max_steps=max_steps,
+    c_failure=200.0,
+    c_operate=0.2,
+    c_inspect=1.0,
+    c_minor=8.0,
+    c_replace=25.0,
+)
 
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
@@ -299,7 +314,7 @@ def train(
             "lambda": float(lam_mult.item()),
             "approx_kl": float(approx_kl),
             "avg_step_cost_lastN": avg_step_cost,
-            "cost_limit_step": cost_limit,
+            "cost_limit_step": float(cost_limit_step),
             "lambda_update_delta": float(lam_update),
             "lambda_value": float(lam_mult.item()),
             "time_elapsed_sec": float(time.time() - start_time),

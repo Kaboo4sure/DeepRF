@@ -12,8 +12,10 @@ import torch.nn as nn
 import torch.optim as optim
 import gymnasium as gym
 
-from src.env.maintenance_env import MaintenanceEnv
+#from src.env.maintenance_env import MaintenanceEnv
+# Changing this to for Bearing run
 
+from src.env.maintenance_NASABearing_env import NASABearingMaintenanceEnv
 
 # ----------------------------
 # Utils
@@ -185,9 +187,20 @@ def main(cfg: SACConfig):
     except Exception:
         pass
 
-    env = MaintenanceEnv(max_steps=cfg.max_steps)
-    assert isinstance(env.action_space, gym.spaces.Discrete), \
-        "Discrete SAC-Lagrangian expects env.action_space = gym.spaces.Discrete."
+    #env = MaintenanceEnv(max_steps=cfg.max_steps)
+    #assert isinstance(env.action_space, gym.spaces.Discrete), \
+    #    "Discrete SAC-Lagrangian expects env.action_space = gym.spaces.Discrete."
+        
+    env = NASABearingMaintenanceEnv(
+    runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
+    model_dir="src/data/models/ensemble_rul_bearing",
+    rul_min=15.0,          # tune later
+    c_failure=200.0,
+    c_operate=0.2,
+    c_inspect=1.0,
+    c_minor=8.0,
+    c_replace=25.0,
+)
 
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n

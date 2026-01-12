@@ -1,4 +1,4 @@
-from pdm_safe_rl.src.env.maintenance_NASABearing_env import NASABearingMaintenanceEnv
+from src.env.maintenance_NASABearing_env import NASABearingMaintenanceEnv
 
 env = NASABearingMaintenanceEnv()
 obs, info = env.reset()
