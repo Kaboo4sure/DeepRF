@@ -7,9 +7,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-#from src.env.maintenance_env import MaintenanceEnv
 from src.env.maintenance_NASABearing_env import NASABearingMaintenanceEnv
-# Added the above for bearing training
+
 # -----------------------------
 # Utils
 # -----------------------------
@@ -70,40 +69,34 @@ def train(
     target_kl=0.02,
     seed=42,
     # constraint settings
-    cost_limit=0.05,      # desired average constraint return per episode (tune)
-    lambda_lr=0.05,       # Lagrange multiplier update speed (tune)
+    cost_limit=0.05,
+    lambda_lr=0.05,
     # env settings
     model_dir="models/ensemble_rul_sim",
     n_models=5,
     rul_min=15.0,
+    max_steps=300,                  # ✅ ADDED
     device=None,
-    #log_dir="runs/ppo_lagrangian"
-    log_dir="runs/ims_bearing/ppo_lagrangian"
-
+    log_dir="runs/ims_bearing/ppo_lagrangian",
+    debug_first_iter=False,         # ✅ optional
 ):
     set_seed(seed)
     os.makedirs(log_dir, exist_ok=True)
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    #env = MaintenanceEnv(
-    #    model_dir=model_dir,
-    #    n_models=n_models,
-    #    rul_min=rul_min,
-    #    max_steps=max_steps
-   # )
-
+    # ✅ Bearing env, max_steps passed in
     env = NASABearingMaintenanceEnv(
-    runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
-    model_dir="src/data/models/ensemble_rul_bearing",
-    rul_min=rul_min,
-    #max_steps=None,
-    c_failure=200.0,
-    c_operate=0.2,
-    c_inspect=1.0,
-    c_minor=8.0,
-    c_replace=25.0,
-)
+        runs_pkl="src/data/data/raw/ims_bearing/runs.pkl",
+        model_dir="src/data/models/ensemble_rul_bearing",
+        rul_min=rul_min,
+        max_steps=max_steps,
+        c_failure=200.0,
+        c_operate=0.2,
+        c_inspect=1.0,
+        c_minor=8.0,
+        c_replace=25.0,
+    )
 
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
@@ -112,16 +105,16 @@ def train(
     pi_opt = torch.optim.Adam(ac.parameters(), lr=pi_lr)
     vf_opt = torch.optim.Adam(ac.parameters(), lr=vf_lr)
 
-    # Lagrange multiplier (risk penalty weight)
+    # Lagrange multiplier
     lam_mult = torch.tensor(0.0, device=device)
 
     # Rollout buffers
-    buf_obs = np.zeros((steps_per_iter, obs_dim), dtype=np.float32)
-    buf_act = np.zeros((steps_per_iter,), dtype=np.int64)
+    buf_obs  = np.zeros((steps_per_iter, obs_dim), dtype=np.float32)
+    buf_act  = np.zeros((steps_per_iter,), dtype=np.int64)
     buf_logp = np.zeros((steps_per_iter,), dtype=np.float32)
-    buf_rew = np.zeros((steps_per_iter,), dtype=np.float32)
+    buf_rew  = np.zeros((steps_per_iter,), dtype=np.float32)
     buf_cost = np.zeros((steps_per_iter,), dtype=np.float32)
-    buf_val = np.zeros((steps_per_iter,), dtype=np.float32)
+    buf_val  = np.zeros((steps_per_iter,), dtype=np.float32)
     buf_cval = np.zeros((steps_per_iter,), dtype=np.float32)
     buf_done = np.zeros((steps_per_iter,), dtype=np.float32)
 
@@ -136,7 +129,6 @@ def train(
             adv[t] = lastgaelam
         return adv
 
-    # Logging
     history = []
 
     obs, info = env.reset(seed=seed)
@@ -157,16 +149,27 @@ def train(
             a = int(a.item())
 
             next_obs, reward, terminated, truncated, info = env.step(a)
-                      
             done = terminated or truncated
+
+            if debug_first_iter and it == 1 and t < 30:
+                print(
+                    "DBG", t,
+                    "a", a,
+                    "term", terminated,
+                    "trunc", truncated,
+                    "env_t", info.get("t"),
+                    "true_rul", info.get("true_rul"),
+                    "T", getattr(env, "current_T", None),
+                    "ep_step", getattr(env, "episode_step", None),
+                )
 
             cost = float(info.get("constraint_cost", 0.0))
 
-            buf_act[t] = a
+            buf_act[t]  = a
             buf_logp[t] = float(logp.item())
-            buf_rew[t] = float(reward)
+            buf_rew[t]  = float(reward)
             buf_cost[t] = float(cost)
-            buf_val[t] = float(v.item())
+            buf_val[t]  = float(v.item())
             buf_cval[t] = float(vc.item())
             buf_done[t] = float(done)
 
@@ -183,7 +186,6 @@ def train(
                 obs, info = env.reset()
                 ep_ret, ep_cost, ep_len = 0.0, 0.0, 0
 
-        # Bootstrap values for GAE (last value assumed 0 in this simple implementation)
         # Reward advantages
         adv_r = compute_gae(buf_rew, buf_val, buf_done, gamma, lam)
         ret_r = adv_r + buf_val
@@ -194,47 +196,38 @@ def train(
 
         # Normalize advantages
         adv_r = (adv_r - adv_r.mean()) / (adv_r.std() + 1e-8)
-        #adv_c = (adv_c - adv_c.mean()) / (adv_c.std() + 1e-8)
         adv_c = adv_c - adv_c.mean()
 
         # Convert to tensors
-        obs_t = torch.tensor(buf_obs, dtype=torch.float32, device=device)
-        act_t = torch.tensor(buf_act, dtype=torch.int64, device=device)
+        obs_t      = torch.tensor(buf_obs,  dtype=torch.float32, device=device)
+        act_t      = torch.tensor(buf_act,  dtype=torch.int64,   device=device)
         logp_old_t = torch.tensor(buf_logp, dtype=torch.float32, device=device)
-        adv_r_t = torch.tensor(adv_r, dtype=torch.float32, device=device)
-        adv_c_t = torch.tensor(adv_c, dtype=torch.float32, device=device)
-        ret_r_t = torch.tensor(ret_r, dtype=torch.float32, device=device)
-        ret_c_t = torch.tensor(ret_c, dtype=torch.float32, device=device)
+        adv_r_t    = torch.tensor(adv_r,    dtype=torch.float32, device=device)
+        adv_c_t    = torch.tensor(adv_c,    dtype=torch.float32, device=device)
+        ret_r_t    = torch.tensor(ret_r,    dtype=torch.float32, device=device)
+        ret_c_t    = torch.tensor(ret_c,    dtype=torch.float32, device=device)
 
         # -------------------------
-        
-        # --- Update Lagrange multiplier (dual ascent) ---
-        # --- Dual ascent on per-step cost ---
-       # --- Dual ascent on per-step cost (stable float update) ---
-        # --- Update Lagrange multiplier (dual ascent) ---
-        # --- Dual ascent on per-step cost (smoothed + capped) ---
-        # --- Update Lagrange multiplier (dual ascent) ---
+        # Update Lagrange multiplier
+        # -------------------------
         N = 30
         lambda_max = 20.0
-        cost_limit_step = 0.01
+        cost_limit_step = float(cost_limit)
 
-        # Use last N episodes if we have them; otherwise use buffer stats
         if len(ep_costs) > 0 and len(ep_lens) > 0:
             avg_ep_cost = float(np.mean(ep_costs[-N:]))
             avg_ep_len  = float(np.mean(ep_lens[-N:]))
         else:
-            avg_ep_cost = float(np.sum(buf_cost))  # total cost over rollout
-            avg_ep_len  = float(steps_per_iter)    # total steps
+            avg_ep_cost = float(np.sum(buf_cost))
+            avg_ep_len  = float(steps_per_iter)
 
         avg_step_cost = avg_ep_cost / max(1.0, avg_ep_len)
 
-        # deadband to prevent tiny oscillations around the limit
-        eps = 0.002
+        eps_deadband = 0.002
         diff = avg_step_cost - cost_limit_step
-        if abs(diff) < eps:
+        if abs(diff) < eps_deadband:
             diff = 0.0
 
-        # cap how much lambda can change per iteration
         max_delta = 0.03
         lam_update = float(np.clip(lambda_lr * diff, -max_delta, max_delta))
 
@@ -243,17 +236,13 @@ def train(
         lam_val = max(0.0, min(lambda_max, lam_val))
         lam_mult = torch.tensor(lam_val, device=device)
 
-
-
         # -------------------------
         # PPO Updates
-        # Objective: maximize reward - lam_mult * cost
         # -------------------------
         n = steps_per_iter
         idxs = np.arange(n)
 
         approx_kl = 0.0
-        stop = False
         for epoch in range(train_epochs):
             np.random.shuffle(idxs)
             for start in range(0, n, minibatch_size):
@@ -264,20 +253,15 @@ def train(
                 logp = dist.log_prob(act_t[mb])
                 ratio = torch.exp(logp - logp_old_t[mb])
 
-                # Combined advantage
-                # maximize: A_r - lam * A_c  -> equivalently minimize negative
                 adv_comb = adv_r_t[mb] - lam_mult.detach() * adv_c_t[mb]
 
-                # PPO clipped policy loss
                 unclipped = ratio * adv_comb
-                clipped = torch.clamp(ratio, 1 - clip_ratio, 1 + clip_ratio) * adv_comb
-                pi_loss = -(torch.min(unclipped, clipped)).mean()
+                clipped   = torch.clamp(ratio, 1 - clip_ratio, 1 + clip_ratio) * adv_comb
+                pi_loss   = -(torch.min(unclipped, clipped)).mean()
 
-                # Value losses
-                v_loss = ((v - ret_r_t[mb]) ** 2).mean()
+                v_loss  = ((v  - ret_r_t[mb]) ** 2).mean()
                 vc_loss = ((vc - ret_c_t[mb]) ** 2).mean()
 
-                # Entropy bonus (small)
                 ent = dist.entropy().mean()
                 ent_bonus = 0.01 * ent
 
@@ -295,17 +279,15 @@ def train(
 
             if approx_kl > 1.5 * target_kl:
                 break
-        if stop:
-            break
 
         # -------------------------
         # Save + log
         # -------------------------
-        avg_ret = float(np.mean(ep_rets[-10:])) if len(ep_rets) >= 1 else float(np.mean(buf_rew))
+        avg_ret  = float(np.mean(ep_rets[-10:]))  if len(ep_rets)  >= 1 else float(np.mean(buf_rew))
         avg_cost = float(np.mean(ep_costs[-10:])) if len(ep_costs) >= 1 else float(np.mean(buf_cost))
-        avg_len = float(np.mean(ep_lens[-10:])) if len(ep_lens) >= 1 else 0.0
+        avg_len  = float(np.mean(ep_lens[-10:]))  if len(ep_lens)  >= 1 else 0.0
         avg_p_unsafe_per_step = avg_cost / max(1.0, avg_len)
-        
+
         log = {
             "iter": it,
             "avg_return_last10eps": avg_ret,
@@ -314,7 +296,7 @@ def train(
             "avg_p_unsafe_per_step_last10eps": float(avg_p_unsafe_per_step),
             "lambda": float(lam_mult.item()),
             "approx_kl": float(approx_kl),
-            "avg_step_cost_lastN": avg_step_cost,
+            "avg_step_cost_lastN": float(avg_step_cost),
             "cost_limit_step": float(cost_limit_step),
             "lambda_update_delta": float(lam_update),
             "lambda_value": float(lam_mult.item()),
@@ -326,36 +308,13 @@ def train(
             print(json.dumps(log, indent=2), flush=True)
 
         if it % 50 == 0:
-            ckpt = {
-                "ac_state_dict": ac.state_dict(),
-                "lambda": float(lam_mult.item()),
-                "config": {
-                    "total_iters": total_iters,
-                    "steps_per_iter": steps_per_iter,
-                    "gamma": gamma,
-                    "lam": lam,
-                    "clip_ratio": clip_ratio,
-                    "pi_lr": pi_lr,
-                    "vf_lr": vf_lr,
-                    "train_epochs": train_epochs,
-                    "minibatch_size": minibatch_size,
-                    "target_kl": target_kl,
-                    "seed": seed,
-                    "cost_limit": cost_limit,
-                    "lambda_lr": lambda_lr,
-                    "model_dir": model_dir,
-                    "n_models": n_models,
-                    "rul_min": rul_min,
-                    
-                }
-            }
             with open(os.path.join(log_dir, "progress.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(log) + "\n")
 
-
-    # final save
-    torch.save({"ac_state_dict": ac.state_dict(), "lambda": float(lam_mult.item())},
-               os.path.join(log_dir, "final.pt"))
+    torch.save(
+        {"ac_state_dict": ac.state_dict(), "lambda": float(lam_mult.item())},
+        os.path.join(log_dir, "final.pt"),
+    )
     with open(os.path.join(log_dir, "history.json"), "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
 
@@ -370,6 +329,8 @@ if __name__ == "__main__":
         cost_limit=0.01,
         lambda_lr=0.3,
         rul_min=100.0,
+        max_steps=300,  # ✅ ADDED
         model_dir="models/ensemble_rul_sim",
         n_models=5,
+        debug_first_iter=False,
     )
