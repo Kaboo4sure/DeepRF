@@ -329,7 +329,7 @@ if __name__ == "__main__":
         cost_limit=0.01,
         lambda_lr=0.3,
         rul_min=100.0,
-        max_steps=300,  # ✅ ADDED
+        max_steps=100000,  # ✅ ADDED
         model_dir="models/ensemble_rul_sim",
         n_models=5,
         debug_first_iter=False,
