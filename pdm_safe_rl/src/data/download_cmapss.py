@@ -1,33 +1,67 @@
 import os
+import shutil
+import urllib.error
 import urllib.request
 import zipfile
 
-# NASA C-MAPSS is commonly distributed as a zip (often called CMAPSSData.zip
-# NOTE: If this URL ever changes, search "NASA C-MAPSS CMAPSSData.zip"
 CMAPSS_URL = "https://data.nasa.gov/docs/legacy/CMAPSSData.zip"
 
-def download_file(url: str, out_path: str):
+ZIP_PATH = "data/raw/cmapss/CMAPSSData.zip"
+OUT_DIR = "data/raw/cmapss/CMAPSSData"
+
+
+def download_file(url: str, out_path: str, timeout: int = 120) -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
     print(f"Downloading from: {url}")
-    urllib.request.urlretrieve(url, out_path)
-    print(f"Saved to: {out_path}")
+    print(f"Saving to: {os.path.abspath(out_path)}")
 
-def unzip(zip_path: str, out_dir: str):
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            with open(out_path, "wb") as output_file:
+                shutil.copyfileobj(response, output_file)
+
+    except (urllib.error.URLError, TimeoutError) as exc:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+        raise RuntimeError(
+            "\nC-MAPSS download failed.\n"
+            "Download CMAPSSData.zip manually from the official NASA "
+            "C-MAPSS Open Data page, then place it at:\n"
+            f"{os.path.abspath(out_path)}"
+        ) from exc
+
+    print(f"Saved to: {os.path.abspath(out_path)}")
+
+
+def unzip(zip_path: str, out_dir: str) -> None:
+    if not zipfile.is_zipfile(zip_path):
+        raise zipfile.BadZipFile(
+            f"The downloaded file is not a valid ZIP archive: {zip_path}"
+        )
+
     os.makedirs(out_dir, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(out_dir)
-    print(f"Extracted to: {out_dir}")
 
-def main():
-    # Many NASA pages host the file behind a landing page.
-    # If the direct download fails, manually download CMAPSSData.zip and place it into data/raw/cmapss/
-    zip_path = "data/raw/cmapss/CMAPSSData.zip"
-    out_dir = "data/raw/cmapss/CMAPSSData"
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        archive.extractall(out_dir)
 
-    if not os.path.exists(zip_path):
-        download_file(CMAPSS_URL, zip_path)
+    print(f"Extracted to: {os.path.abspath(out_dir)}")
 
-    unzip(zip_path, out_dir)
+
+def main() -> None:
+    if not os.path.exists(ZIP_PATH):
+        download_file(CMAPSS_URL, ZIP_PATH)
+    else:
+        print(f"Using existing ZIP: {os.path.abspath(ZIP_PATH)}")
+
+    unzip(ZIP_PATH, OUT_DIR)
+
 
 if __name__ == "__main__":
     main()
